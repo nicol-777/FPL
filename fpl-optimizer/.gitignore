@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+.ipynb_checkpoints/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/external/*
+!data/external/.gitkeep
+models/*
+!models/.gitkeep
+outputs/gameweek_recommendations/*
+!outputs/gameweek_recommendations/.gitkeep
+.venv/
+venv/

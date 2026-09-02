@@ -1,0 +1,11 @@
+requests
+pandas
+numpy
+xgboost
+scikit-learn
+pulp
+matplotlib
+seaborn
+jupyter
+python-dotenv
+streamlit
