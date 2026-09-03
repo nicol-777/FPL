@@ -32,6 +32,7 @@ PRE_MATCH_BASE_FEATURES = [
     "value",           # player's price — known before the gameweek
     "was_home",        # fixture is known in advance
     "position",        # static attribute
+    "rotation_risk_prob",  # predicted P(starts >= 60 mins), from minutes_model
 ]
 
 TEAM_STRENGTH_FEATURES = [
@@ -40,10 +41,10 @@ TEAM_STRENGTH_FEATURES = [
     "strength_defence_home", "strength_defence_away",
     "home_strength", "opponent_defence_strength",
     "fixture_difficulty",
-    "opp_team_goals_for_avg_last3", "opp_team_goals_against_avg_last3",
-    "opp_team_goals_for_avg_last5", "opp_team_goals_against_avg_last5",
-    "own_team_goals_for_avg_last3", "own_team_goals_against_avg_last3",
-    "own_team_goals_for_avg_last5", "own_team_goals_against_avg_last5",
+    # opp_/own_team_goals_* columns are NOT listed here — they already
+    # end in _avg_last3/_avg_last5 and get picked up automatically by
+    # the rolling_cols suffix match in prepare_xy(). Listing them here
+    # too caused a duplicate-column crash.
 ]
 
 CATEGORICAL_COLS = ["position"]
@@ -70,7 +71,7 @@ def prepare_xy(df: pd.DataFrame):
                      c.endswith("_avg_last3") or c.endswith("_avg_last5") or c.endswith("_avg_season")]
     allowed_base = [c for c in PRE_MATCH_BASE_FEATURES + TEAM_STRENGTH_FEATURES if c in df.columns]
 
-    feature_cols = rolling_cols + allowed_base
+    feature_cols = list(dict.fromkeys(rolling_cols + allowed_base))  # de-duped, order preserved
     print(f"Using {len(feature_cols)} features (all pre-match / rolling-form only):")
     print(f"  {feature_cols}")
 

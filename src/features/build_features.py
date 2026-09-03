@@ -153,20 +153,31 @@ def add_dynamic_opponent_form(df: pd.DataFrame, fixtures_full: pd.DataFrame, tea
         return df
 
     # figure out the player's own team id for this fixture
-    fixture_teams = fixtures_full[["season", "fixture", "team_h", "team_a"]].drop_duplicates()
+    fixture_teams = fixtures_full[["season", "fixture", "team_h", "team_a"]].drop_duplicates(
+        subset=["season", "fixture"], keep="last"
+    )
     df = df.merge(fixture_teams, on=["season", "fixture"], how="left")
     df["player_team_id"] = np.where(df["was_home"], df["team_h"], df["team_a"])
 
     team_form_cols = [c for c in team_form.columns if c.startswith("team_goals_")]
 
+    # Guard against fan-out: if a team has more than one row for the same
+    # (season, round) — e.g. rescheduled/double-gameweek data quirks in the
+    # source — collapse to one row per (season, round, team) so the merge
+    # below stays many-to-one, not many-to-many.
+    team_form_dedup = (
+        team_form[["season", "round", "team"] + team_form_cols]
+        .drop_duplicates(subset=["season", "round", "team"], keep="last")
+    )
+
     # opponent's dynamic form
-    opp_form = team_form[["season", "round", "team"] + team_form_cols].rename(
+    opp_form = team_form_dedup.rename(
         columns={"team": "opponent_team", **{c: f"opp_{c}" for c in team_form_cols}}
     )
     df = df.merge(opp_form, on=["season", "round", "opponent_team"], how="left")
 
     # own team's dynamic form
-    own_form = team_form[["season", "round", "team"] + team_form_cols].rename(
+    own_form = team_form_dedup.rename(
         columns={"team": "player_team_id", **{c: f"own_{c}" for c in team_form_cols}}
     )
     df = df.merge(own_form, on=["season", "round", "player_team_id"], how="left")
@@ -223,11 +234,45 @@ def add_fixture_difficulty(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_rotation_risk(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Trains the minutes/rotation-risk model inline (on the same
+    leakage-safe rolling features) and attaches its predicted
+    P(starts >= 60 mins) as a feature for the points model.
+    """
+    import xgboost as xgb
+
+    df = df.copy()
+    df["started"] = (df["minutes"] >= 60).astype(int)
+
+    feature_cols = ["starts_avg_last3", "starts_avg_last5",
+                     "minutes_avg_last3", "minutes_avg_last5", "minutes_avg_season",
+                     "value", "position", "was_home"]
+    feature_cols = [c for c in feature_cols if c in df.columns]
+
+    fit_rows = df[~df["is_first_gw_for_player"]].copy()
+    fit_rows["position"] = fit_rows["position"].astype("category")
+
+    model = xgb.XGBClassifier(
+        n_estimators=200, max_depth=4, learning_rate=0.05,
+        subsample=0.8, colsample_bytree=0.8, min_child_weight=5,
+        objective="binary:logistic", enable_categorical=True,
+    )
+    model.fit(fit_rows[feature_cols], fit_rows["started"])
+
+    all_rows = df.copy()
+    all_rows["position"] = all_rows["position"].astype("category")
+    df["rotation_risk_prob"] = model.predict_proba(all_rows[feature_cols])[:, 1]
+
+    return df.drop(columns=["started"])
+
+
 def build():
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading combined historical gameweek data...")
     df = load_merged()
+    original_row_count = len(df)
     print(f"  {len(df)} rows across seasons: {sorted(df['season'].unique())}")
 
     print("Loading team strength ratings...")
@@ -253,6 +298,18 @@ def build():
     df["is_first_gw_for_player"] = (
         df.groupby(["player_id", "season"])["round"].transform("min") == df["round"]
     )
+
+    print("Training rotation-risk sub-model and attaching predictions...")
+    df = add_rotation_risk(df)
+
+    # Sanity check: merges above must never change the row count. If this
+    # fires, a merge fanned out (duplicate keys on one side) and silently
+    # corrupted the dataset — investigate before trusting anything downstream.
+    if len(df) != original_row_count:
+        raise ValueError(
+            f"Row count changed from {original_row_count} to {len(df)} during feature "
+            f"building — a merge likely duplicated rows. Do not proceed with training on this output."
+        )
 
     out_path = PROCESSED_DIR / "features.csv"
     df.to_csv(out_path, index=False)
