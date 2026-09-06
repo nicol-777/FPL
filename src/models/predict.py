@@ -29,19 +29,20 @@ STAT_COLS = [
     "expected_goals", "expected_assists", "expected_goal_involvements",
 ]
 
-# Must match train_points_model.py's feature list exactly.
+# Must match train_points_model.py's feature list EXACTLY, including order —
+# XGBoost's inplace_predict validates column order, not just column names.
 FEATURE_COLS = (
-    [f"{c}_avg_last{w}" for w in ROLLING_WINDOWS for c in STAT_COLS]
+    ["opp_team_goals_for_avg_last3", "opp_team_goals_against_avg_last3",
+     "opp_team_goals_for_avg_last5", "opp_team_goals_against_avg_last5",
+     "own_team_goals_for_avg_last3", "own_team_goals_against_avg_last3",
+     "own_team_goals_for_avg_last5", "own_team_goals_against_avg_last5"]
+    + [f"{c}_avg_last{w}" for w in ROLLING_WINDOWS for c in STAT_COLS]
     + ["minutes_avg_season", "value", "was_home", "position",
        "rotation_risk_prob",
        "strength_overall_home", "strength_overall_away",
        "strength_attack_home", "strength_attack_away",
        "strength_defence_home", "strength_defence_away",
-       "home_strength", "opponent_defence_strength", "fixture_difficulty",
-       "opp_team_goals_for_avg_last3", "opp_team_goals_against_avg_last3",
-       "opp_team_goals_for_avg_last5", "opp_team_goals_against_avg_last5",
-       "own_team_goals_for_avg_last3", "own_team_goals_against_avg_last3",
-       "own_team_goals_for_avg_last5", "own_team_goals_against_avg_last5"]
+       "home_strength", "opponent_defence_strength", "fixture_difficulty"]
 )
 
 
@@ -66,6 +67,8 @@ def build_rolling_form(history: pd.DataFrame) -> pd.DataFrame:
     history["minutes_avg_season"] = grouped["minutes"].transform(
         lambda s: s.expanding(min_periods=1).mean()
     )
+    # keep only each player's MOST RECENT row — that's their current form
+    # going into the next (not-yet-played) gameweek
     latest = history.sort_values("round").groupby("element").tail(1)
     return latest
 
@@ -162,6 +165,8 @@ def main():
     next_fixture = get_next_fixture_per_team(fixtures, next_gw)
 
     df = players.merge(next_fixture, left_on="team", right_on="team", how="left")
+    # a player's fixture depends on THEIR team, but players.csv already has a
+    # 'team' column with the team id — this merge attaches the right fixture
     df = df.merge(
         history_latest.drop(columns=["position"], errors="ignore"),
         left_on="id", right_on="element", how="left", suffixes=("", "_hist"),
@@ -190,6 +195,8 @@ def main():
     print("Computing rotation risk...")
     df = compute_rotation_risk(df)
 
+    # fill any remaining gaps (new players, early-season sparsity) with 0 —
+    # matches how the model saw sparse-history rows during training
     for col in FEATURE_COLS:
         if col not in df.columns:
             df[col] = 0
@@ -205,6 +212,7 @@ def main():
     out = df[["id", "web_name", "team", "position", "value", "predicted_points"]].rename(
         columns={"id": "player_id", "web_name": "name", "value": "price"}
     )
+    # map numeric team id to name for readability
     team_names = teams.set_index("id")["name"].to_dict()
     out["team"] = out["team"].map(team_names)
 
