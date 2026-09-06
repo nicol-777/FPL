@@ -199,7 +199,6 @@ def main():
     for col in FEATURE_COLS:
         if col not in df.columns:
             df[col] = 0
-    df[FEATURE_COLS] = df[FEATURE_COLS].apply(pd.to_numeric, errors="ignore")
     df["position"] = df["position"].astype("category")
     numeric_feature_cols = [c for c in FEATURE_COLS if c != "position"]
     df[numeric_feature_cols] = df[numeric_feature_cols].fillna(0)
