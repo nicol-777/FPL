@@ -59,21 +59,24 @@ def estimate_selling_price(current_price: float, purchase_price: float | None) -
 
 def build_squad_df(picks_data: dict, bootstrap: dict, purchase_prices: pd.DataFrame | None) -> pd.DataFrame:
     players = pd.DataFrame(bootstrap["elements"])
-    teams = pd.DataFrame(bootstrap["teams"])[["id", "name"]].rename(columns={"id": "team_id", "name": "team"})
+    teams = pd.DataFrame(bootstrap["teams"])[["id", "name"]].rename(columns={"id": "team_id", "name": "team_name"})
     positions = pd.DataFrame(bootstrap["element_types"])[["id", "singular_name_short"]].rename(
         columns={"id": "position_id", "singular_name_short": "position"}
     )
 
-    players = players.merge(teams, left_on="team", right_on="team_id", how="left", suffixes=("", "_teamjoin"))
+    players = players.merge(teams, left_on="team", right_on="team_id", how="left")
     players = players.merge(positions, left_on="element_type", right_on="position_id", how="left")
     players["current_price"] = players["now_cost"] / 10.0
 
-    picks = pd.DataFrame(picks_data["picks"])
+    # The picks JSON has its OWN "position" field (squad slot 1-15), which
+    # would silently collide with the player's actual position (GK/DEF/MID/FWD)
+    # during the merge below — rename it out of the way first.
+    picks = pd.DataFrame(picks_data["picks"]).rename(columns={"position": "squad_slot"})
     squad = picks.merge(
-        players[["id", "web_name", "team", "position", "current_price"]],
+        players[["id", "web_name", "team_name", "position", "current_price"]],
         left_on="element", right_on="id", how="left",
     )
-    squad = squad.rename(columns={"element": "player_id", "web_name": "name"})
+    squad = squad.rename(columns={"element": "player_id", "web_name": "name", "team_name": "team"})
     squad["is_starting"] = squad["multiplier"] > 0
 
     if purchase_prices is not None:
