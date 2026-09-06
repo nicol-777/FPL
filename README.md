@@ -1,6 +1,6 @@
 # FPL Optimizer
 
-Fantasy Premier League points predictor and squad optimizer.
+Fantasy Premier League points predictor and squad optimiser.
 
 ## Structure
 
