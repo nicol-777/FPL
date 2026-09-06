@@ -20,11 +20,14 @@ Run:
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import requests
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 BASE_URL = "https://fantasy.premierleague.com/api"
 PROCESSED_DIR = Path(__file__).resolve().parents[2] / "data" / "processed"
