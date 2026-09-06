@@ -156,6 +156,10 @@ def main():
     print("Attaching player static info...")
     pos_map = positions.set_index("id")["singular_name_short"].to_dict()
     players["position"] = players["element_type"].map(pos_map)
+    # Live API uses "GKP" for goalkeeper; the historical training data
+    # (vaastav's dataset) used "GK" — must match exactly for the model's
+    # categorical encoding, which rejects any unseen category.
+    players["position"] = players["position"].replace({"GKP": "GK"})
     players["value"] = players["now_cost"] / 10.0
 
     print("Computing this season's rolling form...")
