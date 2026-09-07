@@ -64,6 +64,11 @@ def evaluate_transfer_set(
     sell_positions = squad_info[squad_info["player_id"].isin(sell_ids)]["position"].tolist()
 
     candidates = predictions[~predictions["player_id"].isin(current_ids)].copy()
+    # Never recommend BUYING a player whose prediction is low-confidence
+    # (fewer than 2 games played this season) — their score may just be
+    # noise from sparse-history feature fallbacks, not real signal.
+    if "reliable_prediction" in candidates.columns:
+        candidates = candidates[candidates["reliable_prediction"]]
 
     # Greedy per-slot replacement: for each position needed, take the
     # highest-predicted-points affordable player not already chosen.
@@ -129,6 +134,15 @@ def main():
 
     print("Loading squad and predictions...")
     squad, predictions = load_data()
+
+    if "reliable_prediction" in predictions.columns:
+        own_unreliable = predictions[
+            predictions["player_id"].isin(squad["player_id"]) & ~predictions["reliable_prediction"]
+        ]
+        if not own_unreliable.empty:
+            print(f"Note: {len(own_unreliable)} of your own squad have low-confidence predictions "
+                  f"(fewer than 2 games played this season): {own_unreliable['name'].tolist()}")
+            print("  Their 'hold' score above may be less reliable than it looks — treat with caution.")
 
     if args.bank is not None:
         squad.attrs["bank"] = args.bank
