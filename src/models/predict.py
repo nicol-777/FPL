@@ -67,6 +67,10 @@ def build_rolling_form(history: pd.DataFrame) -> pd.DataFrame:
     history["minutes_avg_season"] = grouped["minutes"].transform(
         lambda s: s.expanding(min_periods=1).mean()
     )
+    # how many gameweeks this player has actually appeared in, so far this
+    # season — used downstream to flag low-confidence predictions where
+    # rolling features are based on very little real data
+    history["games_played_this_season"] = grouped.cumcount() + 1
     # keep only each player's MOST RECENT row — that's their current form
     # going into the next (not-yet-played) gameweek
     latest = history.sort_values("round").groupby("element").tail(1)
@@ -213,16 +217,23 @@ def main():
     model.load_model(MODEL_DIR / "points_model.json")
     df["predicted_points"] = np.clip(model.predict(df[FEATURE_COLS]), 0, None)
 
-    out = df[["id", "web_name", "team", "position", "value", "predicted_points"]].rename(
+    out = df[["id", "web_name", "team", "position", "value", "predicted_points", "games_played_this_season"]].rename(
         columns={"id": "player_id", "web_name": "name", "value": "price"}
     )
+    out["games_played_this_season"] = out["games_played_this_season"].fillna(0).astype(int)
+    MIN_GAMES_FOR_RELIABLE = 2
+    out["reliable_prediction"] = out["games_played_this_season"] >= MIN_GAMES_FOR_RELIABLE
     # map numeric team id to name for readability
     team_names = teams.set_index("id")["name"].to_dict()
     out["team"] = out["team"].map(team_names)
 
     out_path = PROCESSED_DIR / "predictions.csv"
     out.to_csv(out_path, index=False)
+    n_unreliable = (~out["reliable_prediction"]).sum()
     print(f"Saved {len(out)} player predictions -> {out_path}")
+    print(f"  {n_unreliable} players flagged as reliable_prediction=False "
+          f"(fewer than {MIN_GAMES_FOR_RELIABLE} games played this season — "
+          f"their predictions are low-confidence and should not drive transfer decisions)")
     print(out.sort_values("predicted_points", ascending=False).head(15).to_string(index=False))
 
 
